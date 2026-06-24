@@ -30,6 +30,12 @@ User (via Web UI or API)
 
 Each generated packet is **self-validating** — it carries both the payload (e.g., sensor type and reading) and a set of validation rules that the receiver applies to verify correctness. This ensures the protocol handles data integrity, type checking, range validation, and format conformance automatically.
 
+## Screenshots
+
+| Sender UI | Receiver UI |
+|---|---|
+| ![Sender UI](sender_ui.jpeg) | ![Receiver UI](receiver_ui.png) |
+
 ## Features
 
 - **Natural language → structured packet:** Describe what you want to send in plain English; the LLM generates the packet

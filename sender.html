@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>PacketForge — TCP Payload Sender</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet"/>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #080c10;
+    --surface:   #0d1117;
+    --surface2:  #111820;
+    --border:    #1e2d3d;
+    --border2:   #243447;
+    --green:     #00ff88;
+    --green-dim: #00b85f;
+    --green-bg:  rgba(0,255,136,0.06);
+    --red:       #ff4d6a;
+    --red-bg:    rgba(255,77,106,0.06);
+    --amber:     #ffb700;
+    --amber-bg:  rgba(255,183,0,0.06);
+    --blue:      #38bdf8;
+    --muted:     #4a6070;
+    --text:      #c8d8e8;
+    --text-dim:  #5a7080;
+    --mono:      'JetBrains Mono', monospace;
+    --display:   'Syne', sans-serif;
+  }
+
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    min-height: 100vh;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  /* ── Scanline overlay ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.04) 2px,
+      rgba(0,0,0,0.04) 4px
+    );
+    pointer-events: none;
+    z-index: 999;
+  }
+
+  /* ── Layout ── */
+  .shell {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 32px 24px 64px;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    margin-bottom: 40px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+    animation: fadeDown 0.5s ease both;
+  }
+  .logo-block { display: flex; flex-direction: column; gap: 4px; }
+  .logo-tag {
+    font-size: 10px;
+    color: var(--green);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  .logo-name {
+    font-family: var(--display);
+    font-size: 28px;
+    font-weight: 800;
+    color: #fff;
+    line-height: 1;
+    letter-spacing: -0.02em;
+  }
+  .logo-sub {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+  }
+  .status-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  /* ── Two-column grid ── */
+  .workspace {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    animation: fadeUp 0.5s ease 0.1s both;
+  }
+
+  /* ── Panel ── */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .panel.full { grid-column: 1 / -1; }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+  }
+  .panel-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .panel-badge {
+    font-size: 9px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .badge-green { background: var(--green-bg); color: var(--green); border: 1px solid rgba(0,255,136,0.2); }
+  .badge-red   { background: var(--red-bg);   color: var(--red);   border: 1px solid rgba(255,77,106,0.2); }
+  .badge-amber { background: var(--amber-bg); color: var(--amber); border: 1px solid rgba(255,183,0,0.2); }
+  .badge-dim   { background: transparent;     color: var(--muted); border: 1px solid var(--border); }
+
+  .panel-body { padding: 14px; }
+
+  /* ── Prompt input area ── */
+  .prompt-wrap { grid-column: 1 / -1; }
+
+  .prompt-area {
+    width: 100%;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+    line-height: 1.7;
+    resize: none;
+    min-height: 90px;
+    caret-color: var(--green);
+  }
+  .prompt-area::placeholder { color: var(--muted); }
+
+  .prompt-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: var(--surface2);
+    border-top: 1px solid var(--border);
+  }
+  .char-count { font-size: 11px; color: var(--text-dim); }
+
+  /* ── Send button ── */
+  .btn-send {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 22px;
+    background: var(--green);
+    color: #000;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .btn-send:hover  { background: #22ffaa; transform: translateY(-1px); }
+  .btn-send:active { transform: translateY(0) scale(0.98); }
+  .btn-send:disabled {
+    background: var(--border2);
+    color: var(--muted);
+    cursor: not-allowed;
+    transform: none;
+  }
+  .btn-send .arrow { transition: transform 0.15s; }
+  .btn-send:hover .arrow { transform: translateX(3px); }
+
+  /* ── Spinner ── */
+  .spinner {
+    width: 12px; height: 12px;
+    border: 2px solid rgba(0,0,0,0.3);
+    border-top-color: #000;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    display: none;
+  }
+  .loading .spinner { display: block; }
+  .loading .arrow   { display: none; }
+
+  /* ── Key-value display ── */
+  .kv-row {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .kv-row:last-child { border-bottom: none; }
+  .kv-key {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    min-width: 110px;
+    flex-shrink: 0;
+  }
+  .kv-val {
+    font-size: 13px;
+    color: var(--green);
+    word-break: break-all;
+  }
+  .kv-val.plain { color: var(--text); }
+
+  /* ── Validation rules table ── */
+  .rules-list { display: flex; flex-direction: column; gap: 6px; }
+  .rule-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 5px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    transition: border-color 0.2s;
+  }
+  .rule-item.pass { border-color: rgba(0,255,136,0.2); background: var(--green-bg); }
+  .rule-item.fail { border-color: rgba(255,77,106,0.2); background: var(--red-bg); }
+
+  .rule-icon {
+    font-size: 12px;
+    width: 16px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .rule-id {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--blue);
+    min-width: 58px;
+    letter-spacing: 0.05em;
+  }
+  .rule-check {
+    font-size: 10px;
+    color: var(--amber);
+    font-weight: 700;
+    min-width: 100px;
+    letter-spacing: 0.05em;
+  }
+  .rule-field {
+    font-size: 11px;
+    color: var(--text-dim);
+    flex: 1;
+  }
+  .rule-detail {
+    font-size: 10px;
+    color: var(--muted);
+    text-align: right;
+  }
+  .rule-item.fail .rule-detail { color: var(--red); }
+  .rule-item.pass .rule-detail { color: var(--green-dim); }
+
+  /* ── ACK banner ── */
+  .ack-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 5px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .ack-banner.valid   { border-color: rgba(0,255,136,0.3); background: var(--green-bg); }
+  .ack-banner.invalid { border-color: rgba(255,77,106,0.3); background: var(--red-bg); }
+  .ack-status {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    flex-shrink: 0;
+  }
+  .ack-banner.valid   .ack-status { color: var(--green); }
+  .ack-banner.invalid .ack-status { color: var(--red); }
+  .ack-meta { color: var(--text-dim); font-size: 11px; line-height: 1.5; }
+
+  /* ── Raw JSON toggle ── */
+  .raw-toggle {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    transition: all 0.15s;
+  }
+  .raw-toggle:hover { border-color: var(--border2); color: var(--text); }
+
+  pre.raw-json {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 12px;
+    font-size: 11px;
+    color: var(--text-dim);
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    display: none;
+    margin-top: 12px;
+    line-height: 1.8;
+  }
+  pre.raw-json.visible { display: block; }
+
+  /* ── Empty states ── */
+  .empty {
+    padding: 28px 0;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 11px;
+    letter-spacing: 0.05em;
+  }
+  .empty-icon {
+    font-size: 22px;
+    margin-bottom: 8px;
+    opacity: 0.3;
+  }
+
+  /* ── Error ── */
+  .error-box {
+    padding: 12px;
+    border-radius: 5px;
+    background: var(--red-bg);
+    border: 1px solid rgba(255,77,106,0.25);
+    color: var(--red);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+
+  /* ── Animations ── */
+  @keyframes fadeDown { from { opacity: 0; transform: translateY(-12px); } to { opacity: 1; transform: none; } }
+  @keyframes fadeUp   { from { opacity: 0; transform: translateY(12px);  } to { opacity: 1; transform: none; } }
+  @keyframes spin     { to { transform: rotate(360deg); } }
+  @keyframes pulse    { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+  @keyframes slideIn  { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .animate-in { animation: slideIn 0.3s ease both; }
+
+  /* ── Stats row ── */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .stat-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 10px 12px;
+    text-align: center;
+  }
+  .stat-val {
+    font-size: 20px;
+    font-weight: 700;
+    font-family: var(--display);
+    color: #fff;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .stat-label { font-size: 9px; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <header>
+    <div class="logo-block">
+      <span class="logo-tag">⬡ TCP Packet Engine</span>
+      <span class="logo-name">PacketForge</span>
+      <span class="logo-sub">LLM-generated payload transmission system</span>
+    </div>
+    <div class="status-bar">
+      <div class="dot"></div>
+      <span id="conn-label">Tailscale: 100.81.64.50:9999</span>
+    </div>
+  </header>
+
+  <div class="workspace">
+
+    <!-- ── Prompt input ── -->
+    <div class="panel prompt-wrap">
+      <div class="panel-header">
+        <span class="panel-title">Prompt</span>
+        <span class="panel-badge badge-dim" id="prompt-status">IDLE</span>
+      </div>
+      <div class="panel-body" style="padding: 14px;">
+        <textarea
+          class="prompt-area"
+          id="prompt"
+          rows="4"
+          placeholder="describe the packet… e.g. send temperature sensor data: 27.4 C"
+        ></textarea>
+      </div>
+      <div class="prompt-footer">
+        <span class="char-count" id="char-count">0 chars</span>
+        <button class="btn-send" id="btn" onclick="sendPrompt()">
+          <div class="spinner"></div>
+          <span>Generate &amp; Send</span>
+          <span class="arrow">→</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ── Payload panel ── -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Payload</span>
+        <span class="panel-badge badge-dim" id="payload-badge">—</span>
+      </div>
+      <div class="panel-body" id="payload-body">
+        <div class="empty">
+          <div class="empty-icon">◻</div>
+          awaiting generation
+        </div>
+      </div>
+    </div>
+
+    <!-- ── ACK / Server response panel ── -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Server ACK</span>
+        <span class="panel-badge badge-dim" id="ack-badge">—</span>
+      </div>
+      <div class="panel-body" id="ack-body">
+        <div class="empty">
+          <div class="empty-icon">◻</div>
+          awaiting response
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Validation rules ── -->
+    <div class="panel full">
+      <div class="panel-header">
+        <span class="panel-title">Validation Rules</span>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span class="panel-badge badge-dim" id="rules-badge">—</span>
+          <button class="raw-toggle" id="raw-btn" onclick="toggleRaw()" style="display:none;">
+            raw json
+          </button>
+        </div>
+      </div>
+      <div class="panel-body" id="rules-body">
+        <div class="empty">
+          <div class="empty-icon">◻</div>
+          rules will appear here
+        </div>
+      </div>
+      <pre class="raw-json" id="raw-json"></pre>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  let lastPacket = null;
+  let rawVisible = false;
+
+  // ── char counter ──
+  const promptEl = document.getElementById("prompt");
+  promptEl.addEventListener("input", () => {
+    document.getElementById("char-count").textContent =
+      promptEl.value.length + " chars";
+  });
+
+  // ── toggle raw JSON ──
+  function toggleRaw() {
+    rawVisible = !rawVisible;
+    const pre = document.getElementById("raw-json");
+    const btn = document.getElementById("raw-btn");
+    pre.classList.toggle("visible", rawVisible);
+    btn.textContent = rawVisible ? "hide raw" : "raw json";
+  }
+
+  // ── badge helpers ──
+  function setBadge(id, text, cls) {
+    const el = document.getElementById(id);
+    el.textContent = text;
+    el.className = "panel-badge " + cls;
+  }
+
+  // ── empty state ──
+  function empty(id, msg) {
+    document.getElementById(id).innerHTML =
+      `<div class="empty"><div class="empty-icon">◻</div>${msg}</div>`;
+  }
+
+  // ── render payload ──
+  function renderPayload(payload) {
+    const body = document.getElementById("payload-body");
+    if (!payload || typeof payload !== "object") {
+      empty("payload-body", "no payload data");
+      return;
+    }
+    const sensorType = payload.SENSOR_TYPE || "UNKNOWN";
+    setBadge("payload-badge", sensorType.replace("_SENSOR",""), "badge-green");
+
+    body.innerHTML = `<div class="animate-in">` +
+      Object.entries(payload).map(([k, v]) =>
+        `<div class="kv-row">
+          <span class="kv-key">${k}</span>
+          <span class="kv-val">${v}</span>
+        </div>`
+      ).join("") +
+    `</div>`;
+  }
+
+  // ── render ACK ──
+  function renderAck(ack) {
+    const body = document.getElementById("ack-body");
+
+    if (!ack || typeof ack !== "object") {
+      body.innerHTML = `<div class="error-box animate-in">${ack || "no response"}</div>`;
+      setBadge("ack-badge", "ERR", "badge-red");
+      return;
+    }
+
+    const isValid = ack.status === "VALID";
+    setBadge("ack-badge", ack.status || "?", isValid ? "badge-green" : "badge-red");
+
+    const v = ack.validation || {};
+    body.innerHTML = `
+      <div class="animate-in">
+        <div class="ack-banner ${isValid ? "valid" : "invalid"}" style="margin-bottom:12px;">
+          <span class="ack-status">${ack.status || "UNKNOWN"}</span>
+          <span class="ack-meta">
+            ${ack.sensor || "—"} &nbsp;|&nbsp; ${ack.data || "—"}<br/>
+            ${v.passed ?? "?"}/${v.total ?? "?"} rules passed
+          </span>
+        </div>
+      </div>`;
+  }
+
+  // ── render validation rules ──
+  function renderRules(rules, ackValidation) {
+    const body  = document.getElementById("rules-body");
+    const badge = document.getElementById("rules-badge");
+    const rawBtn = document.getElementById("raw-btn");
+
+    if (!rules || rules.length === 0) {
+      empty("rules-body", "no rules generated");
+      badge.textContent = "—";
+      badge.className = "panel-badge badge-dim";
+      return;
+    }
+
+    rawBtn.style.display = "block";
+
+    // merge pass/fail from ACK if available
+    const resultMap = {};
+    if (ackValidation && ackValidation.rule_results) {
+      ackValidation.rule_results.forEach(r => { resultMap[r.rule_id] = r; });
+    }
+
+    const passCount = Object.values(resultMap).filter(r => r.passed).length;
+    const hasResults = Object.keys(resultMap).length > 0;
+
+    setBadge(
+      "rules-badge",
+      hasResults ? `${passCount}/${rules.length} PASS` : `${rules.length} RULES`,
+      hasResults ? (passCount === rules.length ? "badge-green" : "badge-red") : "badge-dim"
+    );
+
+    // Stats row if we have results
+    let statsHtml = "";
+    if (hasResults) {
+      const failCount = rules.length - passCount;
+      statsHtml = `
+        <div class="stats-row animate-in">
+          <div class="stat-card">
+            <div class="stat-val" style="color:var(--green)">${passCount}</div>
+            <div class="stat-label">Passed</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-val" style="color:var(--red)">${failCount}</div>
+            <div class="stat-label">Failed</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-val" style="color:var(--blue)">${rules.length}</div>
+            <div class="stat-label">Total</div>
+          </div>
+        </div>`;
+    }
+
+    const rulesHtml = rules.map(rule => {
+      const res   = resultMap[rule.rule_id];
+      const haRes = !!res;
+      const passed = res?.passed;
+      const cls   = haRes ? (passed ? "pass" : "fail") : "";
+      const icon  = haRes ? (passed ? "✔" : "✘") : "◻";
+      const detail = haRes
+        ? (passed ? "OK" : (res.detail || rule.error_msg))
+        : rule.expected || "";
+
+      return `
+        <div class="rule-item ${cls}">
+          <span class="rule-icon" style="color:${haRes ? (passed ? "var(--green)" : "var(--red)") : "var(--muted)"}">${icon}</span>
+          <span class="rule-id">${rule.rule_id}</span>
+          <span class="rule-check">${rule.check}</span>
+          <span class="rule-field">${rule.field}</span>
+          <span class="rule-detail">${detail}</span>
+        </div>`;
+    }).join("");
+
+    body.innerHTML = `<div class="animate-in">${statsHtml}<div class="rules-list">${rulesHtml}</div></div>`;
+  }
+
+  // ── main send ──
+  async function sendPrompt() {
+    const prompt = promptEl.value.trim();
+    if (!prompt) { promptEl.focus(); return; }
+
+    const btn = document.getElementById("btn");
+    btn.classList.add("loading");
+    btn.disabled = true;
+    setBadge("prompt-status", "SENDING", "badge-amber");
+
+    empty("payload-body", "generating…");
+    empty("ack-body",     "waiting for ACK…");
+    empty("rules-body",   "building rules…");
+    setBadge("payload-badge", "—", "badge-dim");
+    setBadge("ack-badge",     "—", "badge-dim");
+    setBadge("rules-badge",   "—", "badge-dim");
+    document.getElementById("raw-json").classList.remove("visible");
+    document.getElementById("raw-btn").style.display = "none";
+    rawVisible = false;
+
+    try {
+      const res = await fetch("http://localhost:5000/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt })
+      });
+
+      const data = await res.json();
+      lastPacket = data;
+
+      if (data.error) {
+        setBadge("prompt-status", "ERROR", "badge-red");
+        empty("payload-body", "—");
+        document.getElementById("ack-body").innerHTML =
+          `<div class="error-box animate-in">${data.error}</div>`;
+        empty("rules-body", "—");
+        return;
+      }
+
+      setBadge("prompt-status", "SENT", "badge-green");
+
+      renderPayload(data.payload);
+
+      const ackObj = typeof data.server_response === "object"
+        ? data.server_response
+        : (() => { try { return JSON.parse(data.server_response); } catch { return data.server_response; } })();
+      renderAck(ackObj);
+
+      const ackValidation = (typeof ackObj === "object") ? ackObj.validation : null;
+      renderRules(data.validation_rules, ackValidation);
+
+      // populate raw JSON
+      document.getElementById("raw-json").textContent =
+        JSON.stringify({ payload: data.payload, validation_rules: data.validation_rules }, null, 2);
+
+    } catch (err) {
+      setBadge("prompt-status", "ERROR", "badge-red");
+      document.getElementById("ack-body").innerHTML =
+        `<div class="error-box animate-in">Request failed: ${err.message}</div>`;
+    } finally {
+      btn.classList.remove("loading");
+      btn.disabled = false;
+    }
+  }
+
+  // ── allow Ctrl+Enter to submit ──
+  promptEl.addEventListener("keydown", e => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) sendPrompt();
+  });
+</script>
+</body>
+</html>
