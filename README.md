@@ -1,4 +1,4 @@
-# PacketForge
+# PacketPI
 
 **LLM-powered custom packet generation and validation system for protocol testing.**
 
